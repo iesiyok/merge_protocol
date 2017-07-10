@@ -30,7 +30,7 @@ rule U_1:
      sig = sign(e, ~k )  //sign of hash(message). signed with U's private key
  in
  [   Fr(~r)
-     !Priv_k(U, ~k) 
+ ,   !Priv_k(U, ~k) 
  ] 
  --[ U_1_St(U, ~r), Unique(U) ]-> 
  [   Out( <e, sig>)	 //U's message sent
