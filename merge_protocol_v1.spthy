@@ -90,8 +90,15 @@ rule U_3:
 restriction U_unique:
   "All U #i #j. Unique(U)@j & Unique(U)@i ==> #i = #j"
 
+// Goes through, very good! -- Robert
+lemma sanity:
+exists-trace
+    "Ex W U r1 r2 #i. Accept(W,U,r1,r2)@i"
+
+
 //if a user accepts a message then it must be the case that the message was sent to the server by him
 //using U-2
+// goes through automatically, very good! -- Robert
 lemma integrity:
 	  "All W U r1 r2 #i. Accept(W, U, r1, r2)@i ==> Ex #j #k .W_Rcv(U, W, r2)@j & U_1_St(U, r1)@k & k<j & j<i "	
 
