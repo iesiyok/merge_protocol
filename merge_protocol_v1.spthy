@@ -1,0 +1,112 @@
+/*
+Initial Attempt for modelling a merge protocol
+
+Authors:    iesiyok, rkunnema
+Date:        July 2017
+
+*/
+
+theory merge_protocol_v1
+begin
+
+builtins: hashing, signing
+functions: list/2, h/1
+
+restriction Equality:	"All x y #i. Eq(x, y) @i ==> x = y"
+restriction	Inequality: "All x #i. Neq(x,x) @ #i ==> F"
+
+//public key register
+rule Reg:
+  [Fr(~k)] --[ Reveal_p($A)]-> [ !Pub_k($A, pk(~k)), !Priv_k($A, ~k), Out( pk(~k))]  
+
+// Compromising an agent's private key
+rule Reveal_ltk:
+	[ !Priv_k(A, ~k) ] --[ Reveal_k(A) ]-> [ Out(~k) ]
+
+//U-1 user send
+rule U_1:
+	let m = <U, ~r> 								//U-1 sender message format m = <uid, fresh_string>
+		e = h(m)									//hashing the message
+      	sig = sign(e, ~k ) 							//sign of hash(message). signed with U's private key
+    in
+  	[ 	Fr(~r)
+  	,	!Priv_k(U, ~k) 
+  	] 
+  	--[ U_1_St(U, ~r), Unique(U) ]-> 
+  	[ 	Out( <e, sig>)								//U's message sent
+  	,	U_1_Send(U, ~r)								//Storing uid and fresh string for the following U-2 receiver to check the values
+  	]
+
+//W web server receive
+rule W:
+	let v = verify(sig, h(<U, r>), pkU)				//verifying the signature with U's public key
+      	sig2 = sign(h(<U, W, r>), kW)				//W will reply the message to U, with m = < uid, wid, received_string> format
+    in 												//signed with W's private key
+    [
+    	!Pub_k(U, pkU)
+    ,	!Priv_k(W, kW)
+    ,	In(<h(<U, r>), sig>)						//U's message received
+    ]
+	--[	W_Rcv(U, W, r)				
+	,	Eq(v, true)									//signature verification result checked to be true
+	, 	Neq(U, W)									//U's and W's ids restricted to be different (Neq ~ not equals)
+	]->
+	[	Out(<h(<U, W, r>), sig2>)					//W's reply message sent
+	]
+
+//U-2 user receive
+rule U_2:
+	let v = verify(sig, h(<U, W, r2>), pkW)			//verifying the signature with W's public key
+    in
+    [
+    	!Pub_k(W, pkW)								
+    ,	U_1_Send(U, r1)								//receiving uid and the string from the U-1 rule to check the values
+    ,	In(<h(<U, W, r2>), sig>)
+    ]
+	--[	Eq(v, true)
+	, 	Eq(r1, r2)									//the string in U-1 (r1) must be equal to the string received from W (r2)
+	, 	Neq(U, W)
+	, 	Accept(W, U, r1, r2)						//ACCEPT under these circumstances
+	]->
+	[	]	
+
+//U-3 user receive, this is almost the same rule with U-2 and added for TESTING purposes.
+//the only difference is the string in U-1 (r1) must be different from the string received from W(r2)
+rule U_3:
+	let v = verify(sig, h(<U, W, r2>), pkW)
+    in
+    [
+    	!Pub_k(W, pkW)
+    ,	U_1_Send(U, r1)
+    ,	In(<h(<U, W, r2>), sig>)
+    ]
+	--[	Eq(v, true)
+	, 	Neq(r1,r2)									//the string in U-1 (r1) must be different from the string received from W(r2)
+	, 	Neq(U, W), Accept_2(W, U, r1, r2)
+	]->
+	[	]	
+
+//U is unique
+restriction U_unique:
+  "All U #i #j. Unique(U)@j & Unique(U)@i ==> #i = #j"
+
+//if a user accepts a message then it must be the case that the message was sent to the server by him
+//using U-2
+lemma integrity:
+	  "All W U r1 r2 #i. Accept(W, U, r1, r2)@i ==> Ex #j #k .W_Rcv(U, W, r2)@j & U_1_St(U, r1)@k & k<j & j<i "	
+
+
+//There is no such thing that : 
+//if a user accepts a message in U-3 (namely r1 different from r2) that means the adversary knows either r1 or r2 
+//without compromising the private key of U or W by using Reveal_k
+lemma integrity2:
+	  "not (Ex W U r1 r2 #i. Accept_2(W, U, r1, r2)@i & ((Ex #l. K(r1)@l) | (Ex #k. K(r2)@k)) & 
+	  		not (
+	  			(Ex #j. Reveal_k(U)@j) 
+	  				| (Ex #m. Reveal_k(W)@m) 
+	  			)
+	  		
+	  		)"
+
+
+end
