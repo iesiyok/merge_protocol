@@ -101,6 +101,8 @@ exists-trace
 // goes through automatically, very good! -- Robert
 lemma integrity:
 	  "All W U r1 r2 #i. Accept(W, U, r1, r2)@i ==> Ex #j #k .W_Rcv(U, W, r2)@j & U_1_St(U, r1)@k & k<j & j<i "	
+// The lemma is actually stronger than required: this part        ^^^^^^^^^^^^^^^^^ could be left out and the user 
+// could still be sure he only receives data he himself sent.
 
 
 //There is no such thing that : 
