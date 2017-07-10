@@ -25,48 +25,48 @@ rule Reveal_ltk:
 
 //U-1 user send
 rule U_1:
-	let m = <U, ~r> 								//U-1 sender message format m = <uid, fresh_string>
-		e = h(m)									//hashing the message
-      	sig = sign(e, ~k ) 							//sign of hash(message). signed with U's private key
+	let m = <U, ~r> 		//U-1 sender message format m = <uid, fresh_string>
+		e = h(m)			//hashing the message
+      	sig = sign(e, ~k ) 	//sign of hash(message). signed with U's private key
     in
   	[ 	Fr(~r)
   	,	!Priv_k(U, ~k) 
   	] 
   	--[ U_1_St(U, ~r), Unique(U) ]-> 
-  	[ 	Out( <e, sig>)								//U's message sent
-  	,	U_1_Send(U, ~r)								//Storing uid and fresh string for the following U-2 receiver to check the values
+  	[ 	Out( <e, sig>)		//U's message sent
+  	,	U_1_Send(U, ~r)		//Storing uid and fresh string for the following U-2 receiver to check the values
   	]
 
 //W web server receive
 rule W:
-	let v = verify(sig, h(<U, r>), pkU)				//verifying the signature with U's public key
-      	sig2 = sign(h(<U, W, r>), kW)				//W will reply the message to U, with m = < uid, wid, received_string> format
-    in 												//signed with W's private key
+	let v = verify(sig, h(<U, r>), pkU)	//verifying the signature with U's public key
+      	sig2 = sign(h(<U, W, r>), kW)	//W will reply the message to U, with m = < uid, wid, rece_str> format
+    in 									//signed with W's private key
     [
     	!Pub_k(U, pkU)
     ,	!Priv_k(W, kW)
-    ,	In(<h(<U, r>), sig>)						//U's message received
+    ,	In(<h(<U, r>), sig>)		//U's message received
     ]
 	--[	W_Rcv(U, W, r)				
-	,	Eq(v, true)									//signature verification result checked to be true
-	, 	Neq(U, W)									//U's and W's ids restricted to be different (Neq ~ not equals)
+	,	Eq(v, true)					//signature verification result checked to be true
+	, 	Neq(U, W)					//U's and W's ids restricted to be different (Neq ~ not equals)
 	]->
-	[	Out(<h(<U, W, r>), sig2>)					//W's reply message sent
+	[	Out(<h(<U, W, r>), sig2>)	//W's reply message sent
 	]
 
 //U-2 user receive
 rule U_2:
-	let v = verify(sig, h(<U, W, r2>), pkW)			//verifying the signature with W's public key
+	let v = verify(sig, h(<U, W, r2>), pkW)	//verifying the signature with W's public key
     in
     [
     	!Pub_k(W, pkW)								
-    ,	U_1_Send(U, r1)								//receiving uid and the string from the U-1 rule to check the values
+    ,	U_1_Send(U, r1)				//receiving uid and the string from the U-1 rule to check the values
     ,	In(<h(<U, W, r2>), sig>)
     ]
 	--[	Eq(v, true)
-	, 	Eq(r1, r2)									//the string in U-1 (r1) must be equal to the string received from W (r2)
+	, 	Eq(r1, r2)					//the string in U-1 (r1) must be equal to the string received from W (r2)
 	, 	Neq(U, W)
-	, 	Accept(W, U, r1, r2)						//ACCEPT under these circumstances
+	, 	Accept(W, U, r1, r2)		//ACCEPT under these circumstances
 	]->
 	[	]	
 
@@ -81,7 +81,7 @@ rule U_3:
     ,	In(<h(<U, W, r2>), sig>)
     ]
 	--[	Eq(v, true)
-	, 	Neq(r1,r2)									//the string in U-1 (r1) must be different from the string received from W(r2)
+	, 	Neq(r1,r2)					//the string in U-1 (r1) must be different from the string received from W(r2)
 	, 	Neq(U, W), Accept_2(W, U, r1, r2)
 	]->
 	[	]	
