@@ -14,12 +14,21 @@ restriction	Inequality: "All x #i. Neq(x,x) @ #i ==> F"
 rule Reg:
   [Fr(~k)] --[ Reveal_p($A)]-> [ !Pub_k($A, pk(~k)), !Priv_k($A, ~k), Out( pk(~k))]  
 
+rule initialize:
+	let x = <m1, m2, '0'>
+	in
+	[]--[Init()]->[Prot_loop(x, 'nil')]
+
+rule start:
+	let m = <hd, ph>
+	    e = h(m)
+	 in
+	[Prot_loop(<hd, tl>, ph)]--[Neq(hd, '0'), Protocol_Start()]->[Prot_loop(tl, e)]
 
 rule U_1_loop_start:
- let org_x = <m1, m2, '0'> //x has to stop with '0'
- 	 prev_h = 'nil'
+ let prev_h = 'nil'
  in
- [] --[Start($U, $W)]-> [ !U_1_Loop(org_x, prev_h), !State($U, $W, org_x), X_org(h(<m2, h(<m1,'nil'>)>))]
+ 	[Prot_loop(t, org_x)] --[Start($U, $W)]-> [ !U_1_Loop(org_x, prev_h), !State($U, $W, org_x), X_org(org_x)]
 
 rule U_1_loop:
  let m = <hd, ph>
@@ -63,35 +72,49 @@ rule U_2:
  --[ Eq(v, true)
  ,	 Accept(U, W, e)		//ACCEPT under these circumstances
  ]->
- [	Accepted(U, W, r, e) ]	
+ [	Accepted(U, W, e) ]	
 
 
 rule retrieved_all:
 	// let e = hash(<r, hash(x)>)
 	// in
 [
-	 Accepted(U, W, r, e), !State(U, W), X_org(e) 
+	 Accepted(U, W, e), !State(U, W), X_org(e) 
 ]--[ All_Retrieved(U, W, e) //ALL messages retrieved
 ]->[]
 
-restriction no_delivery_without_W :
+lemma no_loop_start_wihout_protocol_start [use_induction]:
+  "(All U W #i. Start(U, W)@i ==> Ex #j. Init()@j & j<i)
+  ==>
+   (All #k. Protocol_Start()@k ==> j<k & k<i)"
+
+
+lemma start_protocol [reuse, use_induction]:
+	"All U W #i. Start(U, W)@i ==> (Ex #j. Protocol_Start()@j & j < i)"  
+
+lemma no_delivery_without_W [use_induction]:
   "(All U W e #i. Accept(U, W, e) @ i ==> Ex #j. U_1_St(U, e) @ j )
   ==>
    (All #k. W_Rcv(W, e)@k ==> j<k & k<i)"
 
-lemma start_before_U_send [reuse]:
+
+// lemma init_protocol :
+// 	"All #i. Protocol_Start()@i ==> (Ex #j. Init()@j & j < i)"
+
+
+lemma start_before_U_send [reuse, use_induction]:
 	"All U e #i. U_1_St(U, e)@i ==> (Ex W #j. Start(U, W)@j & j < i)"
 
-lemma start_before_accept [reuse]:
-	"All U W e #i. All_Retrieved(U, W, e)@i ==> (Ex #j. Start(U, W)@j & j < i)"
-
-lemma U_send_before_W_rcv :
+lemma U_send_before_W_rcv [reuse, use_induction]:
 	"All W e #i. W_Rcv(W, e)@i ==> (Ex U #j. U_1_St(U, e)@j & j < i)"	
 
-lemma W_rcv_before_accept :
+lemma W_rcv_before_accept [reuse, use_induction]:
 	"All U W e #i. Accept(U, W, e)@i ==> (Ex #j. W_Rcv(W, e)@j & j < i)"
 
-lemma all_retrieved :
+lemma start_before_accept [reuse, use_induction]:
+	"All U W e #i. All_Retrieved(U, W, e)@i ==> (Ex #j. Start(U, W)@j & j < i)"
+
+lemma all_retrieved [use_induction]:
 	"All U W e #i. All_Retrieved(U, W, e)@i ==> (Ex #j. Accept(U, W, e)@j & j<i )"	
 
 
