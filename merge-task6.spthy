@@ -139,7 +139,9 @@ lemma accept_unique [reuse]:
 lemma all_retrieved_unique [reuse]:
   "All U W e sid #i #j. All_Retrieved(sid, U, W, e)@j & All_Retrieved(sid, U, W, e)@i ==> #i = #j"  
 
-
+lemma sanity:
+   exists-trace
+   "Ex U W e sid #i. All_Retrieved(sid, U, W, e)@i"
 
 
 end
