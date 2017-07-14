@@ -1,46 +1,41 @@
-theory append_test11
+theory merge_task6
 begin
 
 
-builtins: hashing, signing
+builtins: hashing, signing, multiset, diffie-hellman
 functions: h/1
 restriction Equality:	"All x y #i. Eq(x, y) @i ==> x = y"
 restriction	Inequality: "All x #i. Neq(x,x) @ #i ==> F"
-functions: hash/1
-equations: hash(<hd, tl>)= h(<hd, h(tl)>), hash(<hd, '0'>)=h(<hd, 'nil'>)
-
+// functions: hash/1
+// equations: hash(<hd, tl>)= h(<hd, hash(tl)>) 
+// equations: hash(<r, '0'>)=h(<r, 'nil'>)
 
 //public key register
 rule Reg:
   [Fr(~k)] --[ Reveal_p($A)]-> [ !Pub_k($A, pk(~k)), !Priv_k($A, ~k), Out( pk(~k))]  
 
-//TODO; REMEMBER REVEAL KEY!!!!
-
-// Compromising an agent's private key
-// rule Reveal_ltk:
-// 	[ !Priv_k(A, ~k) ] --[ Reveal_k(A) ]-> [ Out(~k) ]
-
 
 rule U_1_loop_start:
  let org_x = <m1, m2, '0'> //x has to stop with '0'
+ 	 prev_h = 'nil'
  in
- [] --[Start($U, $W)]-> [ !U_1_Loop(org_x), !State($U, $W, org_x)]
+ [] --[Start($U, $W)]-> [ !U_1_Loop(org_x, prev_h), !State($U, $W, org_x), X_org(h(<m2, h(<m1,'nil'>)>))]
 
 rule U_1_loop:
- let x = <hd, tl>
-     e = hash(x)		  
+ let m = <hd, ph>
+     e = h(m)		  
      sig = sign(e, ~k )
  in
  [	 !Priv_k(U, ~k) 
- , 	 !U_1_Loop(x)
- ,	 !State(U, W, org_x)
+ , 	 !U_1_Loop(<hd, tl>, ph)
+ ,	 !State(U, W)
  ]
  --[ Neq(hd, '0'),
  	 U_1_St(U, e)
  ]->[
  	 Out( <e, sig>)	
- ,   U_1_Send(U, W, hd, e)/	 //instead of a one global state I found this pieced states to be more informative..
- ,	 !U_1_Loop(tl)
+ ,   U_1_Send(U, W, hd, e)	 //instead of a one global state I found this pieced states to be more informative..
+ ,	 !U_1_Loop(tl, e)
  ]	
 
 rule W:
@@ -48,7 +43,7 @@ rule W:
  	 v = verify(sig, e, pkU)
      sig2 = sign(e, kW)	
  in 									
- [	 !State(U, W, org_x), Pub_k(U, pkU), !Priv_k(W, kW)
+ [	 !State(U, W), Pub_k(U, pkU), !Priv_k(W, kW)
  ,   In(<e, sig>)	
  ]
  --[ Eq(v,true), W_Rcv(W, e)		
@@ -62,7 +57,7 @@ rule U_2:
  	 v = verify(sig, e, pkW)
  in
  [
- 	 !Pub_k(W, pkW), !State(U, W, org_x), U_1_Send(U, W, r, e)				
+ 	 !Pub_k(W, pkW), !State(U, W), U_1_Send(U, W, r, e)				
  ,   In(<e, sig>)
  ]
  --[ Eq(v, true)
@@ -72,10 +67,10 @@ rule U_2:
 
 
 rule retrieved_all:
-	let e = hash(r, x)
-	in
+	// let e = hash(<r, hash(x)>)
+	// in
 [
-	 Accepted(U, W, r, e), !State(U, W, x) 
+	 Accepted(U, W, r, e), !State(U, W), X_org(e) 
 ]--[ All_Retrieved(U, W, e) //ALL messages retrieved
 ]->[]
 
