@@ -1,0 +1,194 @@
+/*
+**  Authors: iesiyok, rkunnema
+**  Merge protocol task-6 has been explored with asymmetric encrytion
+**
+*/
+
+theory merge_task6_v2_encryption
+begin
+
+
+builtins: hashing, signing, asymmetric-encryption
+functions: h/1
+restriction Equality:	"All x y #i. Eq(x, y) @i ==> x = y"
+restriction	Inequality: "All x #i. Neq(x,x) @ #i ==> F"
+
+
+//public key register
+rule Reg:
+  [Fr(~k)] --[ Reveal_p($A)]-> [ !Pub_k($A, pk(~k)), !Priv_k($A, ~k), Out( pk(~k))]  
+
+
+// Compromising an agent's private key
+rule Reveal_ltk:
+	[ !Priv_k(A, ~k) ] --[ Reveal_k(A) ]-> [ Out(~k) ]
+
+/*
+**  Initialization of sender U
+*/
+rule U_1_loop_start:
+ let h_fst_msg ='nil' //hash of first message is 'nil'
+ in
+ []--[U_1_Initial(x)  //original x, chain of messages , i.e. h(m2, h(m1, 'nil'))
+ ]->[ U_1_Loop($U, x, h_fst_msg) ]
+
+/*
+**  Sender U loops through the message to to send the message piece by piece
+**  { U =(User id), hd=(message, the first item on the list), 
+**    tl=(the rest of messages on the list), ph= previous hash }
+*/
+rule U_1_loop:
+ let m = <hd, ph> 	  // the structure of messages :-> <message, previous_hash>
+     e = h(m)		  
+     sig = sign(e, ~k )	//sign with U's private key
+ in
+ [	 !Priv_k(U, ~k)
+ ,	 !Pub_k(W, pkW) 
+ , 	 U_1_Loop(U, <hd, tl>, ph)
+ ]
+ --[ U_1_St(U, hd, e), Unique(U)
+ ]->[
+ 	 Out( aenc(<e, sig>, pkW))	//asymmetric encryption with U's private key
+ ,   U_1_Send(U, hd, tl, ph)	 
+ ,	 U_1_Loop(U, tl, e)
+ ]	
+
+
+//W web server receive . W doesn't need to loop.
+rule W:
+ let e = h(<r, ph>)
+ 	 v = verify(sig, e, pkU)
+ 	 e2 = h(<r, ph>)
+     sig2 = sign(e2, kW)
+ in 									
+ [
+     !Pub_k(U, pkU)	//U-> the sender
+ ,   !Priv_k(W, kW)	//W-> the receiver
+ ,   In(adec(< e, sig>, kW))	
+ ]
+ --[ W_Rcv(W, r, e), Eq(v, true)			
+ ,   Neq(U, W)		
+ ]->
+ [   
+ 	//the same message signed with W's private key and hashed before sending
+ 	 Out(h(< e2, sig2>))	
+ ]
+
+
+ //U-2 user receive
+rule U_2:
+ let e = h(<r, ph>)
+ 	 v = verify(sig, e, pkW)
+ in
+ [
+ 	!Pub_k(W, pkW)
+ ,	!Priv_k(U, k)   								
+ ,   U_1_Send( U, r, tl, ph)	//the status from previous step(U-1)
+ ,   In(h(< e, sig>))
+ ]
+ --[ Eq(v, true)
+ ,	 Accept(U, W, r, e)		//ACCEPT under these circumstances
+ ]->
+ [	 Accepted(U, W, e, tl)
+ ]	
+
+  //U-2 user receive
+rule retrieve_all:
+ [
+ 	Accepted(U, W, e, '0') //All messages retrieved if the last message is '0'
+ ]
+ --[ All_Retrieved(U, W, e)
+ ]->
+ [	 ]	
+
+
+ 
+/*	RESTRICTIONS	*/
+
+//U is unique
+restriction U_unique:
+  "All U #i #j. Unique(U)@j & Unique(U)@i ==> #i = #j"
+
+
+/*	LEMMAS	*/
+
+//Sanity check ~ yields an attack
+lemma sanity :
+   exists-trace
+   "Ex U W e #i . All_Retrieved( U, W, e)@i " 
+
+//All messages have been retrieved -> can be understood when the last message has been accepted
+lemma all_retrieved_preceded_by_accept [reuse, use_induction]:
+	"(All U W e #i. All_Retrieved(U, W, e)@i ==> Ex m #j. Accept(U, W, m, e)@j & j<i)"	
+
+
+/*	EXPLANATION for the lemma "accept_followed_by_w_rcv"
+**	If a message has been accepted -> that message must be delivered through the (W)ebserver (Legitimate way)
+**	Attack Scenarios :
+**		Scenario-1 : [Replay attack]
+**			# W receives a message and re-sends this message's hash to the sender for confirmation
+**			# Attacker retrieves this message and opens it with W's ltk and re-sends it to the user
+**		Scenario-2 : [Injection attack]
+**			# User U sends a message to webserver A
+**			# The same user U expects a confirmation from webserver W2 for his another message
+**			# An attacker receives the message (that the user U sent to A) and opens it with A's ltk, 
+				signs it with U's public key and injects the message to U		
+*/
+lemma accept_preceded_by_w_rcv [reuse, use_induction]:
+  " ( All U W m e #i.  Accept(U, W, m, e)@i
+       ==> (Ex #j. W_Rcv(W, m, e)@j & j<i) //legitimate way
+       		| (Ex #k. Reveal_k(W)@k & k<i) //Scenario - 1
+       		| (Ex A #k #l. Reveal_k(A)@k & Reveal_p(U)@l ) //Scenario - 2
+    )
+  "  
+
+/*	EXPLANATION for the lemma "w_rcv_followed_by_user_snd"
+**	If a message has been received by (W)ebserver -> that message must be delivered by the (U)ser (Legitimate way)
+**	Attack Scenarios :
+**		Scenario-3 : [Injection attack]
+**			# User U sends a message to A
+**			# The same user U expects a confirmation from another webserver W for his another message
+**			# An attacker receives the message (that the user U sent to A) and opens it with A's ltk, 
+				signs it with W's public key and injects the message to W. 	
+**		Scenario-4 : [Injection attack]
+**			# Webserver A receives a message and re-sends this message's hash to the sender for confirmation
+**			# Attacker retrieves this message and opens it with A's ltk 
+				and re-sends it to another webserver W by signing with W's public key	
+*/
+lemma w_rcv_preceded_by_user_snd [reuse, use_induction]:
+  " ( All W m e #i. W_Rcv(W, m, e)@i 
+ 			==> (Ex U #j. U_1_St(U, m, e)@j & j<i) //legitimate way
+ 				| (Ex #k. Reveal_k(W)@k )//Scenario 3 and 4
+ 	)
+ "
+
+/*	EXPLANATION for the lemma "no_other_method_to_change"
+**	If a message followed the legitimate way but the attacker knows the message
+ 		that must be because the W's ltk was revealed
+**	But, only Reveal_k(U) might yield an attack
+*/
+lemma no_other_method_to_change [reuse, use_induction]:
+	"not (Ex U W m e #i #j #k #l. Accept(U, W, m, e)@i & W_Rcv(W, m, e)@j & j<i 
+			& U_1_St(U, m, e)@k & k<j
+				& KU(e)@l  
+				& not (Ex #n. Reveal_k(W)@n ) )"
+				 
+//The User must be initialized to start looping
+lemma user_snd_preceded_by_init [reuse, use_induction]:
+	"(All U m e #i. U_1_St(U, m, e)@i ==> Ex x #j. U_1_Initial(x)@j & j<i) "  
+
+//a simple scenario
+lemma process:
+	" All U W #i #j . All_Retrieved(U, W, h(<m2, h(<m1, 'nil'>)>))@i & Accept(U, W, m2, h(<m2, h(<m1, 'nil'>)>))@i & Accept(U, W, m1, h(<m1, 'nil'>))@j
+						==> Ex #k #l #m #n #o. U_1_St(U, m1, h(<m1, 'nil'>))@k & W_Rcv(W, m1, h(<m1, 'nil'>))@l
+						& U_1_St(U, m2, h(<m2, h(<m1, 'nil'>)>))@m & W_Rcv(W, m2, h(<m2, h(<m1, 'nil'>)>))@n
+											 & U_1_Initial(<m1, m2, '0'>)@o & j<i & l<j & n<i & k<l & l<m & m<n & j<m "
+
+
+
+
+//TEST ALL MESSAGES MUST have been SENT TO SAME W!!!!
+
+
+
+end

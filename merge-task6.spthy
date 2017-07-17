@@ -1,3 +1,9 @@
+/*
+**  Authors: iesiyok, rkunnema
+**  Merge protocol task-6 has been explored without asymmetric encrytion
+**  and the user doesn't know where he sends his message
+*/
+
 theory merge_task6
 begin
 
@@ -6,142 +12,180 @@ builtins: hashing, signing
 functions: h/1
 restriction Equality:	"All x y #i. Eq(x, y) @i ==> x = y"
 restriction	Inequality: "All x #i. Neq(x,x) @ #i ==> F"
-// functions: hash/1
-// equations: hash(<hd, tl>)= h(<hd, hash(tl)>) 
-// equations: hash(<r, '0'>)=h(<r, 'nil'>)
+
+
 
 //public key register
 rule Reg:
   [Fr(~k)] --[ Reveal_p($A)]-> [ !Pub_k($A, pk(~k)), !Priv_k($A, ~k), Out( pk(~k))]  
 
+// Compromising an agent's private key
+rule Reveal_ltk:
+	[ !Priv_k(A, ~k) ] --[ Reveal_k(A) ]-> [ Out(~k) ]
 
-//initialize the input x and give ~sid to agent U
-rule initialize:
-	let x = <m1, m2, '0'>
-	in
-	[Fr(~sid)]--[Init(~sid)]->[Prot_loop(~sid, x, x, 'nil')]
-
-//in the end of this loop, we are going to get hash_x= h(<m2, h(m1, 'nil')>), org_x=<m1,m2,'0'>
-rule start:
-	let x = <hd, tl>
-	    m = <hd, ph>
-	    hash_x = h(m)
-	 in
-	[Prot_loop(sid, org_x, x, ph)]--[Neq(hd, '0'), Protocol_Start(sid)]->[Prot_loop(sid, org_x, tl, hash_x)]
-
-//initialize the agent U's state with the information from previous rules
+/*
+**  Initialization of sender U
+*/
 rule U_1_loop_start:
- let prev_h = 'nil'
+ let h_fst_msg ='nil' //hash of first message is 'nil'
  in
- 	[Prot_loop(sid, org_x, tl, hash_x)] --[Start(sid)]-> [ !U_1_Loop(org_x, prev_h), !State(sid, $U, hash_x)]
+ [] --[U_1_Initial(x) //original x, chain of messages , i.e. h(m2, h(m1, 'nil'))
+ ]-> [ U_1_Loop(U, x, h_fst_msg) ]
 
-//U's sender loop
+/*
+**  Sender U loops through the message to to send the message piece by piece
+**  { U =(User id), hd=(message, the first item on the list), 
+**    tl=(the rest of messages on the list), ph= previous hash }
+*/
 rule U_1_loop:
- let m = <hd, ph>
+ let m = <hd, ph>   // the structure of messages :-> <message, previous_hash>
      e = h(m)		  
-     sig = sign(e, ~k )
+     sig = sign(e, k )  //sign with U's private key
  in
- [	 !Priv_k(U, ~k) 
- , 	 !U_1_Loop(<hd, tl>, ph)
- ,	 !State(sid, U, hash_x) //sid is being hold in order to be unique
+ [	 !Priv_k(U, k) 
+ , 	 U_1_Loop(U,  <hd, tl>, ph)
  ]
- --[ Neq(hd, '0'),
- 	 U_1_St(sid, U, e) //fact -- message has been sent
+ --[ U_1_St(U,  hd, e), Unique(U)
  ]->[
- 	 Out( <e, sig>)	
- ,   U_1_Send(U, hd, e)	
- ,	 !U_1_Loop(tl, e)
+ 	   Out( <e, sig>)	
+ ,   U_1_Send(U,  hd, tl, ph)	 
+ ,	 U_1_Loop(U,  tl, e)
  ]	
 
-//receiver W 
+
+/*
+**  W web server receiver. W doesn't need to loop.
+*/
 rule W:
- let v = verify(sig, e, pkU)
-     sig2 = sign(e, kW)	
+ let e = h(<r, ph>)
+ 	   v = verify(sig, e, pkU)
+     sig2 = sign(e, kW)
  in 									
- [	 !Pub_k(U, pkU), !Priv_k(W, kW)
- ,   In(<e, sig>)	
+ [
+     !Pub_k(U, pkU) //U-> the sender
+ ,   !Priv_k(W, kW) //W-> the receiver
+ ,   In(< e, sig>)
  ]
- --[ Eq(v,true), W_Rcv(U, W, e)		// fact -- message has been received
+ --[ W_Rcv(W, r, e), Eq(v, true)			
+ ,   Neq(U, W)			
  ]->
- [   Out(<e, sig2>)
+ [   //the same message signed with W's private key and hashed before sending
+     Out(h(< e, sig2>)) 
  ]
 
- //U-2 user receive 
+
+ //U-2 user receive
 rule U_2:
  let e = h(<r, ph>)
- 	 v = verify(sig, e, pkW)
+ 	   v = verify(sig, e, pkW)
  in
- [	//if the received message from W equals to the message that was sent in the first place
- 	 !Pub_k(W, pkW), !State(sid, U, hash_x), U_1_Send(U, r, e)			//r is the message that was sent in the first place	
- ,   In(<e, sig>)
+ [
+ 	  !Pub_k(W, pkW)  								
+ ,   U_1_Send( U,  r, tl, ph)	//the status from previous step(U-1)
+ ,   In(h(< e, sig>))
  ]
  --[ Eq(v, true)
- ,	 Accept(sid, U, W, e)		//ACCEPT under these circumstances
+ ,	 Accept(U, W,  r, e)		//ACCEPT under these circumstances
  ]->
- [	Accepted(sid, U, W, e) ]	
+ [	 Accepted(U, W,  e, tl)
+ ]	
+
+  //U-2 user receive
+rule retrieve_all:
+ [
+ 	   Accepted(U, W,  e, '0')  //All messages retrieved if the last message is '0'
+ ]
+ --[ All_Retrieved(U, W,  e)
+ ]->
+ [	 ]	
 
 
-rule retrieved_all:
-[	//if the last message accepted by agent U, 
-	//then its hash must be equal to the hash of whole message which is h(<m2, h(m1, 'nil')>) in this case 
-	 Accepted(sid, U, W, e), !State(sid, U, e) //e = hash_x
-]--[ All_Retrieved(sid, U, W, e) //ALL messages retrieved
-]->[]
+ 
+/*	RESTRICTIONS	*/
 
-/*INITIALIZATION PART*/
-
-//init must start first
-lemma init_before_prot_start [reuse, use_induction]:
-  "All sid #j. Protocol_Start(sid)@j ==> (Ex #i. Init(sid)@i & i < j)"
-
-//Init must start before, U initizalizes its parameters
-lemma init_before_U_start:
-  "All sid #j. Start(sid)@j ==> (Ex #i. Init(sid)@i & i < j)"
-
-//the loop that calculates the hash of whole messages must start before U initializes its parameters
-lemma prot_start_before_U_start [reuse, use_induction]:
-  "All sid #i #j. Start(sid)@j & Protocol_Start(sid)@i ==> #i < #j"
-
-//U must be unique
-lemma U_start_unique [reuse]:
-  "All sid #i #j. Start(sid)@j & Start(sid)@i ==> #i = #j"  
-
-/*MESSAGE SEND, RECEIVE AND ACCEPT PART*/ 
-
-//The order is problematic from this stage !!
-
-//to start to send message, U's parameters must be initialized 
-lemma start_before_U_send_start [reuse, use_induction]:
- "All U e sid #j. U_1_St(sid, U, e)@j ==> (Ex #i. Start(sid)@i & i < j)"
-
-//All_Retrieved requires that last message was accepted !! This is problematic!
-lemma accept_before_all_retrieved [reuse, use_induction]:
-  "All U W e sid #i #j. All_Retrieved(sid, U, W, e)@j & Accept(sid, U, W, e)@i ==> #i < #j"
-
-//U's Accept requires the message coming from W
-lemma W_recv_before_accept [reuse, use_induction]:
-  "All U W e sid #i #j. Accept(sid, U, W, e)@j & W_Rcv(U, W, e)@i ==> #i < #j"
-
-//W's receive requires the message sent by U
-lemma U_start_before_W_recv [reuse, use_induction]:
-  "All U W e #j. W_Rcv(U, W, e)@j ==> (Ex sid #i. U_1_St(sid, U, e)@i & i < j)"
+//U is unique
+restriction U_unique:
+  "All U #i #j. Unique(U)@j & Unique(U)@i ==> #i = #j"
 
 
-//to accept a message it must be sent in the first place
-lemma U_start_before_accept [reuse, use_induction]:
-  "All U W e sid #j. Accept(sid, U, W, e)@j ==> (Ex #i. U_1_St(sid, U, e)@i & i < j)"
+/*	LEMMAS	*/
 
-//A message accept must be unique
-lemma accept_unique [reuse]:
-  "All U W e sid #i #j. Accept(sid, U, W, e)@j & Accept(sid, U, W, e)@i ==> #i = #j"  
 
-//All messages retrieved must work only once
-lemma all_retrieved_unique [reuse]:
-  "All U W e sid #i #j. All_Retrieved(sid, U, W, e)@j & All_Retrieved(sid, U, W, e)@i ==> #i = #j"  
-
-lemma sanity:
+//Sanity check ~ yields an attack
+lemma sanity :
    exists-trace
-   "Ex U W e sid #i. All_Retrieved(sid, U, W, e)@i"
+   "Ex U W e #i . All_Retrieved( U, W, e)@i " 
+
+//The User must be initialized to start looping
+lemma user_snd_preceded_by_init [use_induction]:
+  "(All U m e #i. U_1_St(U, m, e)@i ==> Ex x #j. U_1_Initial(x)@j & j<i) "     
+
+//All messages have been retrieved -> can be understood when the last message has been accepted
+lemma all_retrieved_preceded_by_accept [reuse, use_induction]:
+	"(All U W e #i. All_Retrieved(U, W, e)@i ==> Ex m #j. Accept(U, W, m, e)@j & j<i)"	
+
+//Doesn't hold, It yields an attack as the original x is not fresh. Added for testing!
+lemma accept_preceded_by_w_rcv2:
+  " ( All U W m e #i. Accept(U, W, m, e)@i
+       ==> (Ex #j. W_Rcv(W, m, e)@j  ) //legitimate way
+    )
+  "  
+
+/*
+**  Accept must be followed by W_Rcv, however as the original 'x' hasn't been chosen fresh,
+**  an attacker can compound a new message from other agents' messages and send it to the user
+*/
+lemma accept_preceded_by_w_rcv [reuse, use_induction]:
+  " ( All U W m e #i. Accept(U, W, m, e)@i
+       ==> (Ex #j. W_Rcv(W, m, e)@j  ) //legitimate way
+       | (Ex #k. KU(m)@k ) | (Ex #l. KU(e)@l ) //attack scenario
+    )
+  "  
+/*
+**  W_Rcv must be followed by U_1_St, however as the original 'x' hasn't been chosen fresh,
+**  an attacker can compound a new message from other agents' messages and send it to the Webserver
+*/
+lemma w_rcv_preceded_by_user_snd [reuse, use_induction]:
+  " ( All W m e #i. W_Rcv(W, m, e)@i 
+      ==> (Ex U #j. U_1_St(U, m, e)@j & j<i) //legitimate way
+        | (Ex #k. KU(m)@k ) | (Ex #l. KU(e)@l )//attack scenario
+  )
+ "
+/*
+**  These two lemmas are currently undecidable, as they can't conclude to a contradiction, 
+**  Still working on to define a simpler lemma to verify this property
+** 
+**  W_Rcv must be followed by U_1_St, however if an attack occurs,
+**  The adversary must have acquired this message from another user 
+*/
+lemma no_other_method_to_change_w_rcv [ use_induction]:
+  "not (Ex U W m e #i #j #k #n. W_Rcv(W, m, e)@i 
+        & U_1_St(U, m, e)@j & j<i
+        & KU(e)@k & KU(m)@n
+        & not ((Ex A #l. U_1_St(A, m, e)@l & (not Eq(U, A)@l) ) 
+                  | (Ex A #l. W_Rcv(A, m, e)@l & (not Eq(W, A)@l) ) )
+      )"
+
+//similar to the case above
+/*
+lemma no_other_method_to_change_u_send [ use_induction]:
+	"not (Ex U W m e #i #j #k #l #o. Accept(U, W, m, e)@i & W_Rcv(W, m, e)@j & j<i 
+			  & U_1_St(U, m, e)@k & k<j
+				& KU(e)@l & KU(m)@o 
+				& not (Ex A #n. U_1_St(A, m, e)@n & (not Eq(U, A)@n) )
+        )"
+*/
+//a simple scenario
+lemma process [use_induction] :
+	" All U W #i #j . All_Retrieved(U, W, h(<m2, h(<m1, 'nil'>)>))@i & Accept(U, W, m2, h(<m2, h(<m1, 'nil'>)>))@i & Accept(U, W, m1, h(<m1, 'nil'>))@j
+						==> Ex #k #l #m #n #o. U_1_St(U, m1, h(<m1, 'nil'>))@k & W_Rcv(W, m1, h(<m1, 'nil'>))@l
+						& U_1_St(U, m2, h(<m2, h(<m1, 'nil'>)>))@m & W_Rcv(W, m2, h(<m2, h(<m1, 'nil'>)>))@n
+											 & U_1_Initial(<m1, m2, '0'>)@o & j<i & l<j & n<i & k<l & l<m & m<n & j<m "
+
+
+lemma sanity_check2:
+  "All U W #i. All_Retrieved(U, W, e)@i 
+                ==> Ex m #j. U_1_St(U, m, e)@j & j<i"
 
 
 end
